@@ -1,4 +1,4 @@
-from myENS160 import myENS160
+from lidar.py import distance
 import machine
 import network
 import socket
