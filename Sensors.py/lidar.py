@@ -20,11 +20,22 @@ def read_tfluna():
                         return dist, strength, temp_c
         time.sleep_ms(5)
 
-while True:
-    try:
-        distance, strength, temp_c = read_tfluna()
-        print("Distance:", distance, "Strength:", strength, "Temp:", round(temp_c, 1), "C")
-    except Exception as e:
-        print("Read error:", e)
+def get_lidar_data():
+    distance, strength, temp_c = read_tfluna()
+    return {
+        "distance": distance,
+        "strength": strength,
+        "temperature": temp_c,
+    }
 
-    time.sleep(0.1)
+
+if __name__ == "__main__":
+    while True:
+        try:
+            data = get_lidar_data()
+            print("Distance:", data["distance"], "Strength:", data["strength"], "Temp:", round(data["temperature"], 1), "C")
+        except Exception as e:
+            print("Read error:", e)
+
+        time.sleep(0.1)
+
