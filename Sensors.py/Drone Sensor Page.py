@@ -1,8 +1,9 @@
-from lidar.py import distance
-import machine
+from AHT21_ENT160 import read_environment_data
+from lidar import get_lidar_data
 import network
 import socket
 import time
+import ujson
 
 # Setup the Pico W as an Access Point
 ap = network.WLAN(network.AP_IF)
@@ -56,7 +57,7 @@ html = """<!DOCTYPE html>
 
     <div class="section">
         <div class="label">Temperature</div>
-        <div class="value" id="temp">-- °C</div>
+        <div class="value" id="temp">-- C</div>
     </div>
 
     <div class="section">
@@ -65,13 +66,18 @@ html = """<!DOCTYPE html>
     </div>
 
     <div class="section">
-        <div class="label">Elevation</div>
-        <div class="value" id="elevation">-- m</div>
+        <div class="label">TVOC</div>
+        <div class="value" id="tvoc">-- ppb</div>
     </div>
 
     <div class="section">
-        <div class="label">LIDAR Scan</div>
-        <div class="value" id="lidar">Awaiting data...</div>
+        <div class="label">eCO2</div>
+        <div class="value" id="eco2">-- ppm</div>
+    </div>
+
+    <div class="section">
+        <div class="label">LIDAR Distance</div>
+        <div class="value" id="lidar_distance">-- cm</div>
     </div>
 
     <script>
@@ -79,17 +85,19 @@ html = """<!DOCTYPE html>
             fetch('/data')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('temp').textContent = data.temp + ' °C';
+                    document.getElementById('temp').textContent = data.temp + ' C';
                     document.getElementById('humidity').textContent = data.humidity + ' %';
-                    document.getElementById('elevation').textContent = data.elevation + ' m';
-                    document.getElementById('lidar').textContent = data.lidar || 'No data';
+                    document.getElementById('tvoc').textContent = data.tvoc + ' ppb';
+                    document.getElementById('eco2').textContent = data.eco2 + ' ppm';
+                    document.getElementById('lidar_distance').textContent = data.lidar_distance + ' cm';
                 })
                 .catch(err => {
                     console.log('Data fetch failed:', err);
                 });
         }
 
-        setInterval(updateData, 1000); // Update every second
+        updateData();
+        setInterval(updateData, 200);
     </script>
 </body>
 </html>
@@ -108,30 +116,44 @@ while True:
     cl, addr = s.accept()
     print('Client connected from', addr)
     cl_file = cl.makefile('rwb', 0)
+    request_line = cl_file.readline()
+
     while True:
         line = cl_file.readline()
         if not line or line == b'\r\n':
             break
-    response = html
-    cl.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
-    cl.send(response)
+
+    request = request_line.decode()
+
+    if 'GET /data' in request:
+        try:
+            env = read_environment_data()
+            lidar = get_lidar_data()
+            payload = {
+                'temp': round(env['temperature'], 2),
+                'humidity': round(env['humidity'], 2),
+                'tvoc': env['tvoc'],
+                'eco2': env['eco2'],
+                'elevation': '--',
+                'lidar_distance': lidar['distance'],
+            }
+        except Exception as e:
+            payload = {
+                'temp': '--',
+                'humidity': '--',
+                'tvoc': '--',
+                'eco2': '--',
+                'elevation': '--',
+                'lidar_distance': '--',
+                'error': str(e)
+            }
+
+        response = ujson.dumps(payload)
+        cl.send('HTTP/1.0 200 OK\r\nContent-type: application/json\r\n\r\n')
+        cl.send(response)
+    else:
+        cl.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+        cl.send(html)
+
     cl.close()
 
-#I2C init for sensors readout
-#pin 11 & 12 is SDL  & SCA for ESP32-s3-nano
-SCL_PIN=machine.Pin(11)
-SDA_PIN=machine.Pin(12)
-i2c=machine.I2C(0,scl=SCL_PIN, sda=SDA_PIN,freq=400000)
-
-#init ENS160 sensor on the i2c bus
-ens=myENS160(i2c)
-
-# get data
-TVOC=ens.getTVOC()
-AQI=ens.getAQI()
-ECO2=ens.getECO2()
-
-#print data
-print(AQI)
-print(TVOC)
-print(ECO2)
