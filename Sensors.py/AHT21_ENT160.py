@@ -9,7 +9,6 @@ i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=100000)
 print("I2C devices found:", [hex(x) for x in i2c.scan()])
 
 
-
 # AHT21 DRIVER (Temperature + Humidity)
 
 class AHT21:
@@ -39,7 +38,6 @@ class AHT21:
         temperature = (raw_temp / 1048576) * 200 - 50
 
         return temperature, humidity
-
 
 
 # ENS160 DRIVER (Air Quality)
@@ -78,7 +76,6 @@ class ENS160:
         return aqi, tvoc, eco2
 
 
-
 # SENSOR INIT
 
 aht21 = AHT21(i2c)
@@ -87,21 +84,32 @@ ens160 = ENS160(i2c)
 print("Sensors initialized.\n")
 
 
-# MAIN LOOP
+def read_environment_data():
+    temperature, humidity = aht21.read()
+    aqi, tvoc, eco2 = ens160.read_air_quality()
+    return {
+        "temperature": temperature,
+        "humidity": humidity,
+        "aqi": aqi,
+        "tvoc": tvoc,
+        "eco2": eco2,
+    }
 
-while True:
-    try:
-        temperature, humidity = aht21.read()
-        aqi, tvoc, eco2 = ens160.read_air_quality()
 
-        print("Temperature: {:.2f} C".format(temperature))
-        print("Humidity: {:.2f} %".format(humidity))
-        print("AQI:", aqi)
-        print("TVOC:", tvoc, "ppb")
-        print("eCO2:", eco2, "ppm")
-        print("----------------------------")
+if __name__ == "__main__":
+    while True:
+        try:
+            data = read_environment_data()
 
-    except Exception as e:
-        print("Error:", e)
+            print("Temperature: {:.2f} C".format(data["temperature"]))
+            print("Humidity: {:.2f} %".format(data["humidity"]))
+            print("AQI:", data["aqi"])
+            print("TVOC:", data["tvoc"], "ppb")
+            print("eCO2:", data["eco2"], "ppm")
+            print("----------------------------")
 
-    time.sleep(2)
+        except Exception as e:
+            print("Error:", e)
+
+        time.sleep(2)
+
