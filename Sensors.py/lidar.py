@@ -2,7 +2,7 @@ from machine import UART, Pin
 import time
 
 # UART1 on GP4 (TX) and GP5 (RX)
-uart = UART(1, baudrate=115200, tx=Pin(4), rx=Pin(5))
+uart = UART(1, baudrate=115200, tx=Pin(8), rx=Pin(9))
 
 def read_tfluna():
     while True:
