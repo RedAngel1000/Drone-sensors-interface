@@ -4,10 +4,16 @@ import network
 import socket
 import time
 import ujson
+from machine import Pin
+
+# External LED connected to GPIO15
+led = Pin(15, Pin.OUT)
+led_state = False
+led.value(0)
 
 # Setup the Pico W as an Access Point
 ap = network.WLAN(network.AP_IF)
-ap.config(essid='Cobber-Sensor Drone', password='cobbers!')  # Change password as needed
+ap.config(essid='Cobber-Sensor Drone', password='cobbers!')
 ap.active(True)
 
 # Wait until it's active
@@ -16,7 +22,6 @@ while not ap.active():
 
 print('Access Point IP:', ap.ifconfig()[0])
 
-# Simple HTML page (Used ChatGPT to generate display to save time)
 html = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -50,6 +55,19 @@ html = """<!DOCTYPE html>
             font-weight: bold;
             color: #222;
         }
+        .button {
+            width: 100%;
+            padding: 14px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 8px;
+            background-color: #333;
+            color: white;
+            cursor: pointer;
+        }
+        .button:active {
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -80,6 +98,15 @@ html = """<!DOCTYPE html>
         <div class="value" id="lidar_distance">-- cm</div>
     </div>
 
+    <div class="section">
+        <div class="label">LED Status</div>
+        <div class="value" id="led_status">OFF</div>
+    </div>
+
+    <div class="section">
+        <button class="button" onclick="toggleLed()">Toggle LED</button>
+    </div>
+
     <script>
         function updateData() {
             fetch('/data')
@@ -90,9 +117,21 @@ html = """<!DOCTYPE html>
                     document.getElementById('tvoc').textContent = data.tvoc + ' ppb';
                     document.getElementById('eco2').textContent = data.eco2 + ' ppm';
                     document.getElementById('lidar_distance').textContent = data.lidar_distance + ' cm';
+                    document.getElementById('led_status').textContent = data.led_state;
                 })
                 .catch(err => {
                     console.log('Data fetch failed:', err);
+                });
+        }
+
+        function toggleLed() {
+            fetch('/led/toggle')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('led_status').textContent = data.led_state;
+                })
+                .catch(err => {
+                    console.log('LED toggle failed:', err);
                 });
         }
 
@@ -102,7 +141,6 @@ html = """<!DOCTYPE html>
 </body>
 </html>
 """
-
 
 # Start socket server on port 80
 addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
@@ -134,8 +172,8 @@ while True:
                 'humidity': round(env['humidity'], 2),
                 'tvoc': env['tvoc'],
                 'eco2': env['eco2'],
-                'elevation': '--',
                 'lidar_distance': lidar['distance'],
+                'led_state': 'ON' if led_state else 'OFF'
             }
         except Exception as e:
             payload = {
@@ -143,17 +181,29 @@ while True:
                 'humidity': '--',
                 'tvoc': '--',
                 'eco2': '--',
-                'elevation': '--',
                 'lidar_distance': '--',
+                'led_state': 'ON' if led_state else 'OFF',
                 'error': str(e)
             }
 
         response = ujson.dumps(payload)
         cl.send('HTTP/1.0 200 OK\r\nContent-type: application/json\r\n\r\n')
         cl.send(response)
+
+    elif 'GET /led/toggle' in request:
+        led_state = not led_state
+        led.value(led_state)
+
+        payload = {
+            'led_state': 'ON' if led_state else 'OFF'
+        }
+
+        response = ujson.dumps(payload)
+        cl.send('HTTP/1.0 200 OK\r\nContent-type: application/json\r\n\r\n')
+        cl.send(response)
+        
     else:
         cl.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
         cl.send(html)
 
     cl.close()
-

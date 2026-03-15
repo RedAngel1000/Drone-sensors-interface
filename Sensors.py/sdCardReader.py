@@ -86,7 +86,7 @@ if __name__ == "__main__":
                 print("Logging error during main loop:", e)
                 
             # Wait 5 seconds before taking the next reading
-            time.sleep(5)
+            time.sleep(1)
             
     else:
         print("Halting execution. Please check your SD card wiring and try again.")
