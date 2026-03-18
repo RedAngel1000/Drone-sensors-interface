@@ -85,7 +85,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print("Logging error during main loop:", e)
                 
-            # Wait 5 seconds before taking the next reading
+            # Wait 1 second before taking the next reading
             time.sleep(1)
             
     else:
