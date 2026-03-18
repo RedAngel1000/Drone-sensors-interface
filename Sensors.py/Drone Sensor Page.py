@@ -188,6 +188,12 @@ s.listen(1)
 
 print('Web server running...')
 
+# Only start logging if the SD card mounted successfully
+if setup_sd_card():
+    print("Starting data logging... Press Ctrl+C in the console to stop.")
+else:
+    print("Halting execution. Please check your SD card wiring and try again.")
+
 #Show the connected clients and handle requests
 while True:
     cl, addr = s.accept()
@@ -246,51 +252,40 @@ while True:
     else:
         cl.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
         cl.send(html)
-
-    # Only start logging if the SD card mounted successfully
-    if setup_sd_card():
-        print("Starting data logging... Press Ctrl+C in the console to stop.")
         
-        while True:
-            try:
-                # 1. Fetch data from sensors
-                env_data = read_environment_data()
-                lid_data = get_lidar_data()
-                
-                # 2. Get a simple timestamp (milliseconds since the Pico booted)
-                timestamp = time.ticks_ms()
-                
-                # 3. Ensure we actually received data from both sensors before writing
-                if env_data and lid_data:
-                    
-                    # Format the data as a comma-separated string
-                    data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}\n".format(
-                        timestamp,
-                        env_data["temperature"],
-                        env_data["humidity"],
-                        env_data["aqi"],
-                        env_data["tvoc"],
-                        env_data["eco2"],
-                        lid_data["distance"] 
-                    )
-                    
-                    # 4. Open the file in Append mode ("a") and write the row
-                    with open(FILE_PATH, "a") as file:
-                        file.write(data_row)
-                        
-                    # Print to the console so you know it's working
-                    print("Logged:", data_row.strip())
-                    
-                else:
-                    print("Waiting for stable sensor data...")
-                    
-            except Exception as e:
-                print("Logging error during main loop:", e)
-                
-            # Wait 1 second before taking the next reading
-            time.sleep(1)
+    try:
+        # 1. Fetch data from sensors
+        env_data = read_environment_data()
+        lid_data = get_lidar_data()
             
-    else:
-        print("Halting execution. Please check your SD card wiring and try again.")
+        # 2. Get a simple timestamp (milliseconds since the Pico booted)
+        timestamp = time.ticks_ms()
+            
+        # 3. Ensure we actually received data from both sensors before writing
+        if env_data and lid_data:
+                    
+            # Format the data as a comma-separated string
+            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}\n".format(
+                timestamp,
+                env_data["temperature"],
+                env_data["humidity"],
+                env_data["aqi"],
+                env_data["tvoc"],
+                env_data["eco2"],
+                lid_data["distance"] 
+            )
+                    
+            # 4. Open the file in Append mode ("a") and write the row
+            with open(FILE_PATH, "a") as file:
+                file.write(data_row)
+                        
+            # Print to the console so you know it's working
+            print("Logged:", data_row.strip())
+                    
+        else:
+            print("Waiting for stable sensor data...")
+                    
+    except Exception as e:
+        print("Logging error during main loop:", e)
         
     cl.close()
