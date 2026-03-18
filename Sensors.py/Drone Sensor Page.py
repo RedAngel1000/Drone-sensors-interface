@@ -22,6 +22,7 @@ while not ap.active():
 
 print('Access Point IP:', ap.ifconfig()[0])
 
+#note: Parts of this HTML was generated with Chatgpt to speed up development, and then modified by me to fit the project.
 html = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -150,6 +151,7 @@ s.listen(1)
 
 print('Web server running...')
 
+#Show the connected clients and handle requests
 while True:
     cl, addr = s.accept()
     print('Client connected from', addr)
@@ -163,6 +165,7 @@ while True:
 
     request = request_line.decode()
 
+    #collection of data for the webpage
     if 'GET /data' in request:
         try:
             env = read_environment_data()
@@ -190,6 +193,7 @@ while True:
         cl.send('HTTP/1.0 200 OK\r\nContent-type: application/json\r\n\r\n')
         cl.send(response)
 
+    #LED toggle endpoint
     elif 'GET /led/toggle' in request:
         led_state = not led_state
         led.value(led_state)
