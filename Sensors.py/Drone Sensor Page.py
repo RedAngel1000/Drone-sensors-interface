@@ -4,7 +4,8 @@ import network
 import socket
 import time
 import ujson
-from machine import Pin, SPI
+from machine import Pin, SPI, UART
+from bno055_base import BNO055_BASE
 import os
 import sdcard
 
@@ -22,6 +23,22 @@ led = Pin(15, Pin.OUT)
 led_state = False
 led.value(0)
 
+# BNO055 magnetometer setup over UART
+# Adjust tx/rx pins if your wiring is different.
+BNO_UART_ID = 0
+BNO_BAUDRATE = 115200
+BNO_TX_PIN = 0
+BNO_RX_PIN = 1
+
+mag_sensor = None
+
+try:
+    bno_uart = UART(BNO_UART_ID, baudrate=BNO_BAUDRATE, tx=Pin(BNO_TX_PIN), rx=Pin(BNO_RX_PIN))
+    mag_sensor = BNO055_BASE(bno_uart)
+    print("BNO055 magnetometer initialized.")
+except Exception as e:
+    print("BNO055 setup error:", e)
+
 def setup_sd_card():
     """Initializes the SPI bus, mounts the SD card, and creates a file header if needed."""
     try:
@@ -37,7 +54,7 @@ def setup_sd_card():
         # Check if our log file already exists. If not, create it and write column headers.
         if 'sensor_log.csv' not in os.listdir(SD_MOUNT_PATH):
             with open(FILE_PATH, "w") as file:
-                file.write("Uptime(ms),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm)\n")
+                file.write("Uptime(ms),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm),MagX(uT),MagY(uT),MagZ(uT)\n")
             print("Created new data file with headers.")
         else:
             print("Found existing data file. Appending new data...")
@@ -47,6 +64,34 @@ def setup_sd_card():
     except Exception as e:
         print('SD Card setup error:', e)
         return False
+
+
+def get_magnetometer_data():
+    """Returns magnetic field data from the BNO055 as a dict."""
+    if mag_sensor is None:
+        return {
+            "x": "--",
+            "y": "--",
+            "z": "--",
+            "display": "-- uT"
+        }
+
+    try:
+        mag_x, mag_y, mag_z = mag_sensor.mag()
+        return {
+            "x": round(mag_x, 2),
+            "y": round(mag_y, 2),
+            "z": round(mag_z, 2),
+            "display": "{:.2f}, {:.2f}, {:.2f} uT".format(mag_x, mag_y, mag_z)
+        }
+    except Exception as e:
+        print("Magnetometer read error:", e)
+        return {
+            "x": "--",
+            "y": "--",
+            "z": "--",
+            "display": "-- uT"
+        }
 
 # Setup the Pico W as an Access Point
 ap = network.WLAN(network.AP_IF)
@@ -137,6 +182,16 @@ html = """<!DOCTYPE html>
     </div>
 
     <div class="section">
+        <div class="label">Velocity</div>
+        <div class="value" id="velocity">-- m/s</div>
+    </div>
+
+    <div class="section">
+        <div class="label">Magnetic Field</div>
+        <div class="value" id="magnetic_field">-- uT</div>
+    </div>
+
+    <div class="section">
         <div class="label">LED Status</div>
         <div class="value" id="led_status">OFF</div>
     </div>
@@ -156,6 +211,7 @@ html = """<!DOCTYPE html>
                     document.getElementById('eco2').textContent = data.eco2 + ' ppm';
                     document.getElementById('lidar_distance').textContent = data.lidar_distance + ' cm';
                     document.getElementById('led_status').textContent = data.led_state;
+                    document.getElementById('magnetic_field').textContent = data.magnetic_field;
                 })
                 .catch(err => {
                     console.log('Data fetch failed:', err);
@@ -213,12 +269,14 @@ while True:
         try:
             env = read_environment_data()
             lidar = get_lidar_data()
+            mag = get_magnetometer_data()
             payload = {
                 'temp': round(env['temperature'], 2),
                 'humidity': round(env['humidity'], 2),
                 'tvoc': env['tvoc'],
                 'eco2': env['eco2'],
                 'lidar_distance': lidar['distance'],
+                'magnetic_field': mag['display'],
                 'led_state': 'ON' if led_state else 'OFF'
             }
         except Exception as e:
@@ -228,6 +286,7 @@ while True:
                 'tvoc': '--',
                 'eco2': '--',
                 'lidar_distance': '--',
+                'magnetic_field': '-- uT',
                 'led_state': 'ON' if led_state else 'OFF',
                 'error': str(e)
             }
@@ -257,6 +316,7 @@ while True:
         # 1. Fetch data from sensors
         env_data = read_environment_data()
         lid_data = get_lidar_data()
+        mag_data = get_magnetometer_data()
             
         # 2. Get a simple timestamp (milliseconds since the Pico booted)
         timestamp = time.ticks_ms()
@@ -265,14 +325,17 @@ while True:
         if env_data and lid_data:
                     
             # Format the data as a comma-separated string
-            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}\n".format(
+            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}, {}, {}, {}\n".format(
                 timestamp,
                 env_data["temperature"],
                 env_data["humidity"],
                 env_data["aqi"],
                 env_data["tvoc"],
                 env_data["eco2"],
-                lid_data["distance"] 
+                lid_data["distance"],
+                mag_data["x"],
+                mag_data["y"],
+                mag_data["z"]
             )
                     
             # 4. Open the file in Append mode ("a") and write the row
