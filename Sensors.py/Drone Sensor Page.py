@@ -28,8 +28,8 @@ led.value(0)
 # Adjust tx/rx pins if your wiring is different.
 BNO_UART_ID = 0
 BNO_BAUDRATE = 115200
-BNO_TX_PIN = 0
-BNO_RX_PIN = 1
+BNO_TX_PIN = 16
+BNO_RX_PIN = 17
 
 mag_sensor = None
 
@@ -55,7 +55,7 @@ def setup_sd_card():
         # Check if our log file already exists. If not, create it and write column headers.
         if 'sensor_log.csv' not in os.listdir(SD_MOUNT_PATH):
             with open(FILE_PATH, "w") as file:
-                file.write("Time(s),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm)\n")
+                file.write("Time(s),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm),MagX(uT),MagY(uT),MagZ(uT),AccX(m/s^2),AccY(m/s^2),AccZ(m/s^2)\n")
             print("Created new data file with headers.")
         else:
             print("Found existing data file. Appending new data...")
@@ -65,7 +65,6 @@ def setup_sd_card():
     except Exception as e:
         print('SD Card setup error:', e)
         return False
-
 
 def get_magnetometer_data():
     """Returns magnetic field data from the BNO055 as a dict."""
@@ -92,6 +91,33 @@ def get_magnetometer_data():
             "y": "--",
             "z": "--",
             "display": "-- uT"
+        }
+
+def get_acceleration_data():
+    """Returns acceleration data from the BNO055 as a dict."""
+    if mag_sensor is None:
+        return {
+            "x": "--",
+            "y": "--",
+            "z": "--",
+            "display": "-- m/s^2"
+        }
+
+    try:
+        acc_x, acc_y, acc_z = mag_sensor.accel()
+        return {
+            "x": round(acc_x, 2),
+            "y": round(acc_y, 2),
+            "z": round(acc_z, 2),
+            "display": "{:.2f}, {:.2f}, {:.2f} m/s^2".format(acc_x, acc_y, acc_z)
+        }
+    except Exception as e:
+        print("Acceleration read error:", e)
+        return {
+            "x": "--",
+            "y": "--",
+            "z": "--",
+            "display": "-- m/s^2"
         }
 
 # Setup the Pico W as an Access Point
@@ -183,8 +209,8 @@ html = """<!DOCTYPE html>
     </div>
 
     <div class="section">
-        <div class="label">Velocity</div>
-        <div class="value" id="velocity">-- m/s</div>
+        <div class="label">Acceleration</div>
+        <div class="value" id="acceleration">-- m/s²</div>
     </div>
 
     <div class="section">
@@ -212,6 +238,7 @@ html = """<!DOCTYPE html>
                     document.getElementById('eco2').textContent = data.eco2 + ' ppm';
                     document.getElementById('lidar_distance').textContent = data.lidar_distance + ' cm';
                     document.getElementById('led_status').textContent = data.led_state;
+                    document.getElementById('acceleration').textContent = data.acceleration;
                     document.getElementById('magnetic_field').textContent = data.magnetic_field;
                 })
                 .catch(err => {
@@ -271,6 +298,7 @@ while True:
             env = read_environment_data()
             lidar = get_lidar_data()
             mag = get_magnetometer_data()
+            acc = get_acceleration_data()
             payload = {
                 'temp': round(env['temperature'], 2),
                 'humidity': round(env['humidity'], 2),
@@ -278,6 +306,7 @@ while True:
                 'eco2': env['eco2'],
                 'lidar_distance': lidar['distance'],
                 'magnetic_field': mag['display'],
+                'acceleration': acc['display'],
                 'led_state': 'ON' if led_state else 'OFF'
             }
         except Exception as e:
@@ -288,6 +317,7 @@ while True:
                 'eco2': '--',
                 'lidar_distance': '--',
                 'magnetic_field': '-- uT',
+                'acceleration': '-- m/s^2',
                 'led_state': 'ON' if led_state else 'OFF',
                 'error': str(e)
             }
@@ -318,6 +348,7 @@ while True:
         env_data = read_environment_data()
         lid_data = get_lidar_data()
         mag_data = get_magnetometer_data()
+        acc_data = get_acceleration_data()
             
         # 2. Get a simple timestamp (milliseconds since the Pico booted)
         timestamp = time.ticks_ms()
@@ -326,7 +357,7 @@ while True:
         if env_data and lid_data:
                     
             # Format the data as a comma-separated string
-            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}\n".format(
+            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n".format(
                 time1,
                 env_data["temperature"],
                 env_data["humidity"],
@@ -336,7 +367,10 @@ while True:
                 lid_data["distance"],
                 mag_data["x"],
                 mag_data["y"],
-                mag_data["z"]
+                mag_data["z"],
+                acc_data["x"],
+                acc_data["y"],
+                acc_data["z"]
             )
                     
             # 4. Open the file in Append mode ("a") and write the row

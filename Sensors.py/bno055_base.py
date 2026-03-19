@@ -38,7 +38,7 @@ from micropython import const
 
 _CHIP_ID = const(0xA0)
 
-_CONFIG_MODE = const(0) #do we we need to change config mode for uart
+_CONFIG_MODE = const(0)
 _NDOF_MODE = const(0x0C)
 
 _POWER_NORMAL = const(0x00)
@@ -79,9 +79,9 @@ MAG_RADIUS_LSB_ADDR = const(0x69)
 MAG_RADIUS_MSB_ADDR = const(0x6A)
 
 
-class BNO055_BASE: #do i need to change the address, what is crystal, transpose and sign
+class BNO055_BASE:
     def __init__(self, uart0, crystal=True, transpose=(0, 1, 2), sign=(0, 0, 0)):
-        self._uart0 = uart0 #this is an issue, need to define uart
+        self._uart0 = uart0
         self.crystal = crystal
         self.mag = lambda: self.scaled_tuple(0x0E, 1 / 16)  # microteslas (x, y, z)
         self.accel = lambda: self.scaled_tuple(0x08, 1 / 100)  # m.s^-2
@@ -93,70 +93,77 @@ class BNO055_BASE: #do i need to change the address, what is crystal, transpose 
             0x20, 1 / (1 << 14), bytearray(8), "<hhhh"
         )  # (w, x, y, z)
         self._mode = _CONFIG_MODE
+
+        # Clear any stale UART bytes
+        self._flush_uart()
+
         try:
             chip_id = self._read(_ID_REGISTER)
         except OSError:
             raise RuntimeError("No BNO055 chip detected.")
+
         if chip_id != _CHIP_ID:
             raise RuntimeError("bad chip id (%x != %x)" % (chip_id, _CHIP_ID))
+
         self.reset()
+
+    def _flush_uart(self):
+        while self._uart0.any():
+            self._uart0.read()
 
     def reset(self):
         self.mode(_CONFIG_MODE)
         try:
             self._write(_TRIGGER_REGISTER, 0x20)
-        except OSError:  # error due to the chip resetting
+        except OSError:
+            # Expected during reset
             pass
-        # wait for the chip to reset (650 ms typ.)
+
+        # Wait for the chip to reset (650 ms typ.)
         time.sleep_ms(700)
+        self._flush_uart()
+
         self._write(_POWER_REGISTER, _POWER_NORMAL)
         self._write(_PAGE_REGISTER, 0x00)
         self._write(_TRIGGER_REGISTER, 0x80 if self.crystal else 0)
-        time.sleep_ms(500 if self.crystal else 10)  # Crystal osc seems to take time to start.
+        time.sleep_ms(500 if self.crystal else 10)
+
         if hasattr(self, "orient"):
-            self.orient()  # Subclass
+            self.orient()
+
         self.mode(_NDOF_MODE)
 
     def scaled_tuple(self, addr, scale, buf=bytearray(6), fmt="<hhh"):
         return tuple(b * scale for b in ustruct.unpack(fmt, self._readn(buf, addr)))
 
     def temperature(self):
-        t = self._read(0x34)  # Celcius signed (corrected from Adafruit)
+        t = self._read(0x34)
         return t if t < 128 else t - 256
 
     # Return bytearray [sys, gyro, accel, mag] calibration data.
     def cal_status(self, s=bytearray(4)):
         cdata = self._read(_CALIBRATION_REGISTER)
-        s[0] = (cdata >> 6) & 0x03  # sys
-        s[1] = (cdata >> 4) & 0x03  # gyro
-        s[2] = (cdata >> 2) & 0x03  # accel
-        s[3] = cdata & 0x03  # mag
+        s[0] = (cdata >> 6) & 0x03
+        s[1] = (cdata >> 4) & 0x03
+        s[2] = (cdata >> 2) & 0x03
+        s[3] = cdata & 0x03
         return s
 
     def calibrated(self):
         s = self.cal_status()
-        # https://learn.adafruit.com/adafruit-bno055-absolute-orientation-sensor/device-calibration
         return min(s[1:]) == 3 and s[0] > 0
 
     def sensor_offsets(self):
-        lastMode = self._mode
-
+        last_mode = self._mode
         self.mode(_CONFIG_MODE)
         offsets = self._readn(bytearray(22), ACCEL_OFFSET_X_LSB_ADDR)
-        self.mode(lastMode)
-
+        self.mode(last_mode)
         return offsets
 
     def set_offsets(self, buf):
-        lastMode = self._mode
+        last_mode = self._mode
         self.mode(_CONFIG_MODE)
-
         time.sleep_ms(25)
-
-        """Note: Configuration will take place only when user writes to the last
-            byte of each config data pair (ex. ACCEL_OFFSET_Z_MSB_ADDR, etc.).
-            Therefore the last byte must be written whenever the user wants to
-            changes the configuration."""
 
         self._write(ACCEL_OFFSET_X_LSB_ADDR, buf[0])
         self._write(ACCEL_OFFSET_X_MSB_ADDR, buf[1])
@@ -185,53 +192,49 @@ class BNO055_BASE: #do i need to change the address, what is crystal, transpose 
         self._write(MAG_RADIUS_LSB_ADDR, buf[20])
         self._write(MAG_RADIUS_MSB_ADDR, buf[21])
 
-        self.mode(lastMode)
-# read, write, and readn were modified to use UART methods with vibe code aid from Claude
-    # read byte from register, return int
+        self.mode(last_mode)
+
     def _read(self, memaddr, buf=bytearray(1)):
+        self._flush_uart()
         packet = bytes([0xAA, 0x01, memaddr, 0x01])
         self._uart0.write(packet)
-        time.sleep_ms(50)  # add delay
+        time.sleep_ms(20)
         resp = self._uart0.read(3)
-        if resp is None or resp[0] != 0xBB:
+        if resp is None or len(resp) < 3 or resp[0] != 0xBB or resp[1] != 0x01:
             raise OSError("UART read failed at register 0x{:02X}".format(memaddr))
         return resp[2]
 
-    # write byte to register
     def _write(self, memaddr, data, buf=bytearray(1)):
+        self._flush_uart()
         packet = bytes([0xAA, 0x00, memaddr, 0x01, data])
         self._uart0.write(packet)
-        time.sleep_ms(50)
+        time.sleep_ms(20)
         resp = self._uart0.read(2)
         if resp is None or len(resp) < 2:
             raise OSError("UART write failed at register 0x{:02X}".format(memaddr))
         if resp[0] != 0xEE or resp[1] != 0x01:
             raise OSError("UART write failed at register 0x{:02X}".format(memaddr))
 
-    # read n bytes, return buffer
-    def _readn(self, buf, memaddr):  # memaddr = memory location within the I2C device
+    def _readn(self, buf, memaddr):
         n = len(buf)
-        # Packet: start(0xAA), read(0x01), register, length=n
+        self._flush_uart()
         packet = bytes([0xAA, 0x01, memaddr, n])
         self._uart0.write(packet)
-        time.sleep_ms(50)
-        # Response: 0xBB <len> <n data bytes>
-        resp = self._uart0.read(n + 2)  # header(2) + n data bytes
-        if resp is None or resp[0] != 0xBB:
+        time.sleep_ms(20)
+        resp = self._uart0.read(n + 2)
+        if resp is None or len(resp) < (n + 2) or resp[0] != 0xBB or resp[1] != n:
             raise OSError("UART readn failed at register 0x{:02X}".format(memaddr))
-        buf[:] = resp[2:]
+        buf[:] = resp[2:2 + n]
         return buf
 
     def mode(self, new_mode=None):
         old_mode = self._read(_MODE_REGISTER)
         if new_mode is not None:
-            self._write(
-                _MODE_REGISTER, _CONFIG_MODE
-            )  # This is empirically necessary if the mode is to be changed
-            time.sleep_ms(20)  # Datasheet table 3.6
+            self._write(_MODE_REGISTER, _CONFIG_MODE)
+            time.sleep_ms(20)
             if new_mode != _CONFIG_MODE:
                 self._write(_MODE_REGISTER, new_mode)
-                time.sleep_ms(10)  # Table 3.6
+                time.sleep_ms(10)
 
         self._mode = old_mode if new_mode is None else new_mode
         return old_mode
