@@ -10,6 +10,7 @@ import os
 import sdcard
 
 # Hardware Constants
+time1=0
 SPI_BUS = 0
 SCK_PIN = 6
 MOSI_PIN = 3
@@ -54,7 +55,7 @@ def setup_sd_card():
         # Check if our log file already exists. If not, create it and write column headers.
         if 'sensor_log.csv' not in os.listdir(SD_MOUNT_PATH):
             with open(FILE_PATH, "w") as file:
-                file.write("Uptime(ms),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm),MagX(uT),MagY(uT),MagZ(uT)\n")
+                file.write("Time(s),Temp(C),Humidity(%),AQI,TVOC(ppb),eCO2(ppm),Distance(cm)\n")
             print("Created new data file with headers.")
         else:
             print("Found existing data file. Appending new data...")
@@ -325,8 +326,8 @@ while True:
         if env_data and lid_data:
                     
             # Format the data as a comma-separated string
-            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}, {}, {}, {}\n".format(
-                timestamp,
+            data_row = "{}, {:.2f}, {:.2f}, {}, {}, {}, {}\n".format(
+                time1,
                 env_data["temperature"],
                 env_data["humidity"],
                 env_data["aqi"],
@@ -344,6 +345,7 @@ while True:
                         
             # Print to the console so you know it's working
             print("Logged:", data_row.strip())
+            time1=time1+1
                     
         else:
             print("Waiting for stable sensor data...")
